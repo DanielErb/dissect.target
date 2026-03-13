@@ -20,21 +20,11 @@ if TYPE_CHECKING:
 
     from dissect.target.target import Target
 
-#@pytest.fixture
-# def target_mywalkfs(target_default: Target) -> Target:
-#     vfs = VirtualFilesystem()
-#     vfs.map_file_fh("test_file", BytesIO(b"test string"))
-#     vfs.map_file_fh("/test/dir/to/test_file", BytesIO(b"test string"))
-#     vfs.map_file_fh("should_not_hit", BytesIO(b"this is another file."))
-#     target_default.fs.mount("/", vfs)
-#     target_default.add_plugin(MyWalkPlugin)
-#     return target_default
+
 @pytest.fixture
-def target_mywalkfs(target_unix: Target) -> Target:
-    fs_unix = VirtualFilesystem()
+def target_mywalkfs(target_unix: Target, fs_unix: VirtualFilesystem) -> Target:
     target_unix.fs.mount("/", fs_unix)
     target_unix.add_plugin(MyWalkPlugin)
-
     return target_unix
 
 
@@ -73,7 +63,7 @@ def test_basic_attributes_file(target_mywalkfs: Target) -> None:
 
     record = results[4]
 
-    assert len(results) == 5
+    assert len(results) == 7
 
     assert record.atime == datetime.fromtimestamp(1709300000, tz=timezone.utc)
     assert record.mtime == datetime.fromtimestamp(1709301000, tz=timezone.utc)

@@ -29,7 +29,10 @@ walkfsRecord = TargetRecordDescriptor(
 
 class MyWalkPlugin(Plugin):
     def check_compatible(self) -> None:
-        pass
+        #check if there is at least one filesystem
+        if len(self.target.fs.mounts) == 0:
+            raise Exception("No filesystems found on target")
+
 
     @export(record=walkfsRecord)
     def mywalkfs(
@@ -37,7 +40,7 @@ class MyWalkPlugin(Plugin):
             path: str = "/",
     ) -> Iterator[walkfsRecord]:
         for file in self.target.fs.recurse(path):
-            stat = file.stat()
+            stat = file.lstat() #lstat because we want info about the symlink not the target
 
             mimetype = None #because dirs and symlinks dont have mime type
             type = "Unknown"
@@ -46,7 +49,7 @@ class MyWalkPlugin(Plugin):
             elif file.is_dir():
                 type = "Directory"
             elif file.is_file():
-                mimetype = from_entry(file)
+                mimetype = from_entry(file, mime=True)
                 type = "File"
 
             try:
