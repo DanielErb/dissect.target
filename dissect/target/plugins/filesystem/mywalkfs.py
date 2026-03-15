@@ -8,7 +8,7 @@ from dissect.target.plugin import Plugin, export
 
 SUID_IDENTIFIER = 0o4000
 
-walkfsRecord = TargetRecordDescriptor(
+WalkFileSystemRecord = TargetRecordDescriptor(
     "filesystem/newentry",
     [
         ("datetime", "atime"),
@@ -33,17 +33,16 @@ walkfsRecord = TargetRecordDescriptor(
 class MyWalkPlugin(Plugin):
     """Plugin to recursively walk through the filesystem and return file information."""
     def check_compatible(self) -> None:
-        """verify that the target has at least one filesystem to walk through"""
-        if len(self.target.fs.mounts) == 0:
+        if not len(self.target.fs.mounts):
             raise UnsupportedPluginError("No filesystems found on target")
 
 
-    @export(record=walkfsRecord)
+    @export(record=WalkFileSystemRecord)
     def mywalkfs(
             self,
             walkfs_path: str = "/",
             check_mime: bool = True,
-    ) -> Iterator[walkfsRecord]:
+    ) -> Iterator[WalkFileSystemRecord]:
         """Recursively walk through the filesystem and return file information.
 
         Args:
@@ -84,9 +83,7 @@ class MyWalkPlugin(Plugin):
                 volume_identifiers = [file.fs.identifier]
 
 
-
-
-            yield walkfsRecord(
+            yield WalkFileSystemRecord(
                 atime=stat.st_atime,
                 mtime=stat.st_mtime,
                 ctime=stat.st_ctime,
