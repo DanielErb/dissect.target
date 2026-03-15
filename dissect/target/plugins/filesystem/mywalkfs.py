@@ -1,4 +1,9 @@
-from collections.abc import Iterator
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 from dissect.target.exceptions import UnsupportedPluginError
 from dissect.target.filesystem import LayerFilesystemEntry
@@ -30,33 +35,33 @@ WalkFileSystemRecord = TargetRecordDescriptor(
     ],
 )
 
+
 class MyWalkPlugin(Plugin):
     """Plugin to recursively walk through the filesystem and return file information."""
+
     def check_compatible(self) -> None:
         if not len(self.target.fs.mounts):
             raise UnsupportedPluginError("No filesystems found on target")
 
-
     @export(record=WalkFileSystemRecord)
     def mywalkfs(
-            self,
-            walkfs_path: str = "/",
-            check_mime: bool = True,
+        self,
+        walkfs_path: str = "/",
+        check_mime: bool = True,
     ) -> Iterator[WalkFileSystemRecord]:
         """Recursively walk through the filesystem and return file information.
 
         Args:
             walkfs_path: The path on the target to start walking from. Defaults to "/".
             check_mime: Whether to check the MIME type of files. Defaults to True.
+
         Returns:
             Iterator yields ``walkfsRecord``.
         """
-
-
         for file in self.target.fs.recurse(walkfs_path):
-            stat = file.lstat() #lstat because we want info about the symlink not the target
+            stat = file.lstat()  # lstat because we want info about the symlink not the target
 
-            mimetype = None #because dirs and symlinks dont have mime type
+            mimetype = None  # because dirs and symlinks dont have mime type
             type = "Unknown"
             if file.is_symlink():
                 type = "Symlink"
@@ -67,21 +72,22 @@ class MyWalkPlugin(Plugin):
                     mimetype = from_entry(file, mime=True)
                 type = "File"
 
+            attributes = {}
             try:
-                attr = file.attr() #returns a dict of [string, byte] not quite what i need but im not sure because some functions just return none
-            except Exception:
-                attr = None
+                for attr in file.attr():
+                    attributes[attr.name] = attr.value
+            except (NotImplementedError, TypeError):
+                pass
 
             fs_types = []
             volume_identifiers = []
-            if isinstance(file, LayerFilesystemEntry): #layered file system
+            if isinstance(file, LayerFilesystemEntry):  # layered file system
                 for layer in file.fs.layers:
                     fs_types.append(layer.__type__)
                     volume_identifiers.append(layer.identifier)
             else:
                 fs_types = [file.fs.__type__]
                 volume_identifiers = [file.fs.identifier]
-
 
             yield WalkFileSystemRecord(
                 atime=stat.st_atime,
@@ -97,10 +103,8 @@ class MyWalkPlugin(Plugin):
                 mimetype=mimetype,
                 is_suid=bool(stat.st_mode & SUID_IDENTIFIER),
                 type=type,
-                attr=attr,
+                attr=attributes,
                 fs_types=fs_types,
                 volume_identifiers=volume_identifiers,
                 _target=self.target,
             )
-
-
