@@ -1,12 +1,15 @@
-from dissect.target.filesystem import LayerFilesystemEntry
-from dissect.target.helpers.record import TargetRecordDescriptor
-from dissect.target.plugin import Plugin, arg, export
-from dissect.target.helpers.magic import Magic, from_entry
-
 from collections.abc import Iterator
 
+from dissect.target.exceptions import UnsupportedPluginError
+from dissect.target.filesystem import LayerFilesystemEntry
+from dissect.target.helpers.magic import from_entry
+from dissect.target.helpers.record import TargetRecordDescriptor
+from dissect.target.plugin import Plugin, export
+
+SUID_IDENTIFIER = 0o4000
+
 walkfsRecord = TargetRecordDescriptor(
-    "filesystem/mywalkfs/record",
+    "filesystem/newentry",
     [
         ("datetime", "atime"),
         ("datetime", "mtime"),
@@ -28,18 +31,30 @@ walkfsRecord = TargetRecordDescriptor(
 )
 
 class MyWalkPlugin(Plugin):
+    """Plugin to recursively walk through the filesystem and return file information."""
     def check_compatible(self) -> None:
-        #check if there is at least one filesystem
+        """verify that the target has at least one filesystem to walk through"""
         if len(self.target.fs.mounts) == 0:
-            raise Exception("No filesystems found on target")
+            raise UnsupportedPluginError("No filesystems found on target")
 
 
     @export(record=walkfsRecord)
     def mywalkfs(
             self,
-            path: str = "/",
+            walkfs_path: str = "/",
+            check_mime: bool = True,
     ) -> Iterator[walkfsRecord]:
-        for file in self.target.fs.recurse(path):
+        """Recursively walk through the filesystem and return file information.
+
+        Args:
+            walkfs_path: The path on the target to start walking from. Defaults to "/".
+            check_mime: Whether to check the MIME type of files. Defaults to True.
+        Returns:
+            Iterator yields ``walkfsRecord``.
+        """
+
+
+        for file in self.target.fs.recurse(walkfs_path):
             stat = file.lstat() #lstat because we want info about the symlink not the target
 
             mimetype = None #because dirs and symlinks dont have mime type
@@ -49,7 +64,8 @@ class MyWalkPlugin(Plugin):
             elif file.is_dir():
                 type = "Directory"
             elif file.is_file():
-                mimetype = from_entry(file, mime=True)
+                if check_mime:
+                    mimetype = from_entry(file, mime=True)
                 type = "File"
 
             try:
@@ -82,11 +98,12 @@ class MyWalkPlugin(Plugin):
                 uid=stat.st_uid,
                 gid=stat.st_gid,
                 mimetype=mimetype,
-                is_suid=bool(stat.st_mode & 0o4000), #SUID is defined by 4
+                is_suid=bool(stat.st_mode & SUID_IDENTIFIER),
                 type=type,
                 attr=attr,
                 fs_types=fs_types,
-                volume_identifiers=volume_identifiers
+                volume_identifiers=volume_identifiers,
+                _target=self.target,
             )
 
 
