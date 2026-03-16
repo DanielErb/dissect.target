@@ -5,11 +5,12 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
+from dissect.target.exceptions import FileNotFoundError as TargetFileNotFoundError
 from dissect.target.exceptions import UnsupportedPluginError
 from dissect.target.filesystem import LayerFilesystemEntry
 from dissect.target.helpers.magic import from_entry
 from dissect.target.helpers.record import TargetRecordDescriptor
-from dissect.target.plugin import Plugin, export
+from dissect.target.plugin import Plugin, arg, export
 
 SUID_IDENTIFIER = 0o4000
 
@@ -44,6 +45,8 @@ class MyWalkPlugin(Plugin):
             raise UnsupportedPluginError("No filesystems found on target")
 
     @export(record=WalkFileSystemRecord)
+    @arg("--walkfs-path", default="/", help="path to recursively walk")
+    @arg("--check_mime", action="store_true", help="enable mimetype lookup of files")
     def mywalkfs(
         self,
         walkfs_path: str = "/",
@@ -58,53 +61,68 @@ class MyWalkPlugin(Plugin):
         Returns:
             Iterator yields ``walkfsRecord``.
         """
+        path = self.target.fs.path(walkfs_path)
+
+        if not path.exists():
+            self.target.log.error("No such directory: '%s'", walkfs_path)
+            return
+
+        if not path.is_dir():
+            self.target.log.error("Not a directory: '%s'", walkfs_path)
+            return
+
         for file in self.target.fs.recurse(walkfs_path):
-            stat = file.lstat()  # lstat because we want info about the symlink not the target
-
-            mimetype = None  # because dirs and symlinks dont have mime type
-            type = "Unknown"
-            if file.is_symlink():
-                type = "Symlink"
-            elif file.is_dir():
-                type = "Directory"
-            elif file.is_file():
-                if check_mime:
-                    mimetype = from_entry(file, mime=True)
-                type = "File"
-
-            attributes = {}
             try:
-                for attr in file.attr():
-                    attributes[attr.name] = attr.value
-            except (NotImplementedError, TypeError):
-                pass
+                stat = file.lstat()  # lstat because we want info about the symlink not the target
 
-            fs_types = []
-            volume_identifiers = []
-            if isinstance(file, LayerFilesystemEntry):  # layered file system
-                for layer in file.fs.layers:
-                    fs_types.append(layer.__type__)
-                    volume_identifiers.append(layer.identifier)
-            else:
-                fs_types = [file.fs.__type__]
-                volume_identifiers = [file.fs.identifier]
+                mimetype = None  # because dirs and symlinks dont have mime type
+                type = "Unknown"
+                if file.is_symlink():
+                    type = "Symlink"
+                elif file.is_dir():
+                    type = "Directory"
+                elif file.is_file():
+                    if check_mime:
+                        mimetype = from_entry(file, mime=True)
+                    type = "File"
 
-            yield WalkFileSystemRecord(
-                atime=stat.st_atime,
-                mtime=stat.st_mtime,
-                ctime=stat.st_ctime,
-                btime=stat.st_birthtime,
-                ino=stat.st_ino,
-                path=self.target.fs.path(file.path),
-                size=stat.st_size,
-                mode=stat.st_mode,
-                uid=stat.st_uid,
-                gid=stat.st_gid,
-                mimetype=mimetype,
-                is_suid=bool(stat.st_mode & SUID_IDENTIFIER),
-                type=type,
-                attr=attributes,
-                fs_types=fs_types,
-                volume_identifiers=volume_identifiers,
-                _target=self.target,
-            )
+                attributes = []
+                try:
+                    attributes = [f"{attr.name}={attr.value.hex()}" for attr in file.attr()]
+                except TypeError:
+                    pass
+
+                fs_types = []
+                volume_identifiers = []
+                if isinstance(file, LayerFilesystemEntry):  # layered file system
+                    for layer in file.fs.layers:
+                        fs_types.append(layer.__type__)
+                        volume_identifiers.append(layer.identifier)
+                else:
+                    fs_types = [file.fs.__type__]
+                    volume_identifiers = [file.fs.identifier]
+
+                yield WalkFileSystemRecord(
+                    atime=stat.st_atime,
+                    mtime=stat.st_mtime,
+                    ctime=stat.st_ctime,
+                    btime=stat.st_birthtime,
+                    ino=stat.st_ino,
+                    path=self.target.fs.path(file.path),
+                    size=stat.st_size,
+                    mode=stat.st_mode,
+                    uid=stat.st_uid,
+                    gid=stat.st_gid,
+                    mimetype=mimetype,
+                    is_suid=bool(stat.st_mode & SUID_IDENTIFIER),
+                    type=type,
+                    attr=attributes,
+                    fs_types=fs_types,
+                    volume_identifiers=volume_identifiers,
+                    _target=self.target,
+                )
+            except TargetFileNotFoundError:
+                self.target.log.warning("File not found during walk: '%s'", file.path)
+            except Exception as e:
+                self.target.log.warning("Error processing file '%s': %s", file.path, e)
+                self.target.log.debug("", exc_info=e)
