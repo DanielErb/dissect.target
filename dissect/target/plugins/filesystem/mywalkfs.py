@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-from dissect.target.exceptions import FileNotFoundError as TargetFileNotFoundError
 from dissect.target.exceptions import UnsupportedPluginError
 from dissect.target.filesystem import LayerFilesystemEntry
 from dissect.target.helpers.magic import from_entry
@@ -121,7 +120,7 @@ class MyWalkPlugin(Plugin):
                     volume_identifiers=volume_identifiers,
                     _target=self.target,
                 )
-            except TargetFileNotFoundError:
+            except FileNotFoundError:
                 self.target.log.warning("File not found during walk: '%s'", file.path)
             except Exception as e:
                 self.target.log.warning("Error processing file '%s': %s", file.path, e)
